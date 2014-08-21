@@ -1,0 +1,86 @@
+---
+title: "Practical Machine Learning Write-up"
+author: "Jiajuan Liu"
+date: "Wednesday, August 20, 2014"
+output: html_document
+---
+## Introduction
+For this assignment, we were asked to develop and test a model for human activity data, using devices such as Jawbone Up, Nike FuelBand, and Fitbit. The specific goal is to train the model to distinguish different ways (both correct and incorrect) to do weight-lifting. The data came from 6 participarts who were advised to perform weight-lifting in 5 different ways - 1 correct 4 with common mistakes. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the WLE Dataset). 
+
+## Data Processing
+First we load both training and testing data from current directory (the data sets have been downloaded here):
+
+```{r, "read data"}
+pml_training <- read.csv("pml-training.csv")
+pml_testing <- read.csv("pml-testing.csv")
+```
+
+There are 160 variables in the dataset. Directly training a model with so many variables is not advised - it could be time-consuming and the resulting model could be unnecessarily complex. So we first check the dataset to see whether we should simplify the preidictors. 
+
+By visually checking the data, we first realize that some variables are not predictive -- such as user name and recording time. These are the first 5 variables in the dataset, so we'll eliminate them. Next, it's easy to see that some variables have a lot of "NA" values, which are probably not so good for training, and we'll build a function to eliminate those variables as well. Lastly, if a varaible only has one unique value for all measurements, then it has no predictive power, either. We'll eliminate those variables as well.
+
+```{r, "select relevant features"}
+#remove the first 5 columns - names, times, etc
+pml_training1 <- pml_training[,6:160]
+
+#remove those columns where most values are 'na'.
+colRemove <- sapply(pml_training1, function(x){sum(is.na(x)) > sum(!is.na(x))})
+pml_training1 <- subset(pml_training1[,!colRemove]) #19622 obs, 88 vars
+
+#remove those columns where the variance is very small -- little predictive power
+library(caret)
+littleVar <- nearZeroVar(pml_training1)
+pml_training2 <- pml_training1[,-littleVar]
+
+```
+The resulting dataset now has 54 variables, which is more reasonable. 
+
+## Model training and validating
+Now we're about to develop our model.
+
+First, we split the training dataset into training and cross-validatin parts (60:40 split). To save the memory space, some unused variables will be deleted:
+
+```{r, "split the dataset into training and cross-validation sets"}
+# to save the memory space, unused varibles will be deleted 
+rm('pml_training')
+rm('pml_training1')
+
+#split training examples into training(60%) and cross-validation(40%) parts
+inTrain <- createDataPartition(pml_training2$classe, p = 0.6, list = FALSE)
+pml_tr <- pml_training2[inTrain,]
+pml_cv <- pml_training2[-inTrain,]
+
+rm('pml_training2')
+```
+
+We used random Forest method to train the data, since it's a classification task and random Forest is eligible for such task. Other methods might be effective, too.
+
+The model has an estimate error rate of 0.35%, which is pretty low:
+
+```{r,"train a random Forest model"}
+library(randomForest)
+modFit <- randomForest(classe ~ ., data = pml_tr)
+modFit
+```
+
+
+Next, we'll see that this model also works well enough for the cross validation dataset, achieving an accuracy of 99.6%:
+```{r, "cross validation of the model"}
+#cross validation
+predict_cv <- predict(modFit,pml_cv[,-54])
+confusionMatrix(predict_cv,pml_cv$classe)
+```
+
+Last, we use this model to predict the 20 cases in the testing dataset, and achived 100% accuracy (confirmed by the web submission).
+```{r,"predict the test set"}
+predict_test <- predict(modFit,pml_testing)
+answers = as.character(predict_test)
+answers 
+```
+
+## Results
+The learned random forest model was able to correctly predict all 20 cases in the testing set.
+
+## Reference:
+This thread in the discussion board is really helpful for doing this assignment:
+https://class.coursera.org/predmachlearn-004/forum/thread?thread_id=57
